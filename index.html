@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ghost Hunt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Almendra+SC&family=Almendra:ital@0;1&family=Share+Tech+Mono&display=swap">
+<style>
+/* Layout: full-screen black canvas (the haunted dark); a small header floats on top with the music button, title and ghost tally.
+   A start card covers everything until the first tap (that tap also unlocks sound). */
+:root{
+  --violet:#b967ff;--violet-d:#7a2cff;--cyan:#3ff3ff;--muted:#6a4a9a;
+  --display:'Almendra SC',Georgia,serif;--text:'Almendra',Georgia,serif;--mono:'Share Tech Mono','Courier New',monospace;
+  color-scheme:dark;
+}
+html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;flex-direction:column;align-items:center;gap:6px;padding:calc(10px + env(safe-area-inset-top,0px)) 16px 0;pointer-events:none}
+.music{pointer-events:auto;font-family:var(--display);font-size:15px;background:rgba(20,10,40,.85);color:var(--muted);border:1px solid #3a2466;border-radius:999px;padding:6px 14px;cursor:pointer}
+.music[aria-pressed="true"]{color:#e6d4ff;border-color:var(--violet);box-shadow:0 0 12px rgba(185,103,255,.4)}
+.music:focus-visible,.start button:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+h1{margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,7vw,44px);letter-spacing:.06em;color:#5a3a8a;text-shadow:0 0 14px rgba(122,44,255,.35);line-height:1}
+.tally{display:flex;gap:10px}
+.tally svg{width:26px;height:30px;fill:none;stroke:#3a2a55;stroke-width:2;transition:fill .5s,stroke .5s,filter .5s}
+.tally svg.got{stroke:none;fill:var(--c);filter:drop-shadow(0 0 6px var(--c))}
+.tally svg.pop{animation:pop .5s}
+.tally{gap:6px;flex-wrap:wrap;justify-content:center;max-width:100%}.tally svg{width:20px;height:24px}
+.levels{display:flex;gap:10px}
+.levels span{width:12px;height:12px;border-radius:50%;background:#1e1530;box-shadow:inset -4px 0 0 #0a0612;transition:background .6s,box-shadow .6s}
+.levels span.cur{background:#5a3a8a;box-shadow:inset -4px 0 0 #0a0612,0 0 8px rgba(185,103,255,.5)}
+.levels span.done{background:#e6d4ff;box-shadow:0 0 10px rgba(185,103,255,.9)}
+.strikes{display:flex;gap:12px;margin-top:2px}
+.strikes svg{width:18px;height:27px}
+.strikes rect{fill:#d9cfe8}
+.strikes .fl{fill:#ffb347;filter:drop-shadow(0 0 4px #ff8a1f);transition:opacity .4s}
+.strikes svg.out .fl{opacity:0}
+.strikes svg.out rect{fill:#4a3a5a}
+@keyframes pop{50%{transform:scale(1.5)}}
+.start{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;padding:16px;background:#000}
+.start .card{max-width:420px;text-align:center;font-family:var(--text);color:#cdb8f0;font-size:19px;line-height:1.45}
+.start h2{font-family:var(--display);font-weight:400;font-size:clamp(38px,11vw,58px);margin:0 0 10px;color:var(--violet);text-shadow:0 0 12px var(--violet),0 0 30px var(--violet-d);letter-spacing:.05em}
+.start p{margin:0 0 22px}
+.start button{font-family:var(--display);font-size:22px;letter-spacing:.06em;color:#120424;background:var(--violet);border:0;border-radius:999px;padding:12px 30px;cursor:pointer;box-shadow:0 0 18px var(--violet),0 0 40px var(--violet-d)}
+.start.gone{opacity:0;pointer-events:none;transition:opacity .8s}
+.coords{position:fixed;left:0;right:0;top:50%;transform:translateY(-50%);z-index:6;display:flex;flex-direction:column;align-items:center;gap:8px;font-family:var(--mono);font-size:clamp(30px,9vw,52px);letter-spacing:.06em;pointer-events:none;animation:flick 2.4s ease-out}
+.coords[hidden]{display:none}
+.coord-n{color:#8dff88;text-shadow:0 0 8px rgba(141,255,136,.9),0 0 22px rgba(80,255,90,.55);animation:glow 3s ease-in-out infinite}
+.coord-w{color:#ffab55;text-shadow:0 0 8px rgba(255,171,85,.9),0 0 22px rgba(255,120,30,.55);animation:glow 3s ease-in-out infinite .6s}
+@keyframes glow{50%{filter:brightness(1.25)}}
+@keyframes flick{0%{opacity:0}10%{opacity:.8}14%{opacity:.1}22%{opacity:.9}26%{opacity:.2}40%,100%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.coords,.coord-n,.coord-w,.tally svg.pop{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Pitch-black room. Move your light around to find the hiding ghosts."></canvas>
+<header>
+  <button class="music" id="musicBtn" type="button" aria-pressed="false" aria-label="Background music">♪ Music off</button>
+  <h1>Ghost Hunt</h1>
+  <div class="levels" id="levels" aria-hidden="true"><span></span><span></span><span></span></div>
+  <div class="tally" id="tally" aria-live="polite"></div>
+  <div class="strikes" id="strikes" aria-label="3 of 3 candles left"><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg></div>
+</header>
+<div class="coords" id="coords" hidden><div class="coord-n" id="cn"></div><div class="coord-w" id="cw"></div></div>
+<div class="start" id="start"><div class="card">
+  <h2>Ghost Hunt</h2>
+  <p>Use your lantern to catch the ghosts before they hide in the castle!</p>
+  <button type="button" id="go">Light the lantern</button>
+</div></div>
+
+<script>
+(()=>{
+"use strict";
+const $=id=>document.getElementById(id);
+const FINAL=(()=>{const k=["wisp","~","haunt",String(4*7)].join("");let h=2166136261;for(let i=0;i<k.length;i++){h^=k.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}
+  let a=h>>>0;const nx=()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)&255;};
+  const b=Uint8Array.from(atob("RPlxaj4q6DeLnCZh6r+1przHRk6Q6wi1ML/d"),c=>c.charCodeAt(0)^nx());return new TextDecoder().decode(b).split("|");})();
+
+/* ---------- settings ---------- */
+const LEVELS=[6,10,12], CATCH_TIME=1.5, TOUCH_LIFT=70;
+let lv=0,N_GHOSTS=LEVELS[0];
+const COLORS=[["#b967ff","#7a2cff"],["#3ff3ff","#00a9ff"],["#7dff6a","#1fe05a"],["#ff4fd8","#d0159f"],["#d4ff3a","#9bd400"],["#ffb347","#ff7a00"],["#ff6b6b","#ff2e3c"],["#9fc4ff","#4a7cff"],["#5affc8","#00c98a"],["#ffe14a","#e0b000"],["#f2ecff","#b98cff"],["#ff9ec4","#ff4f8f"]];
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- audio ---------- */
+let ctx,master,echoIn,noiseBuf,musicNodes=null,musicOn=false;
+function initAudio(){
+  if(ctx){if(ctx.state==="suspended")ctx.resume();return;}
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;ctx=new AC();
+  const comp=ctx.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=4;comp.connect(ctx.destination);
+  master=ctx.createGain();master.gain.value=.9;master.connect(comp);
+  echoIn=ctx.createGain();echoIn.gain.value=.5;const dl=ctx.createDelay(1);dl.delayTime.value=.31;const fb=ctx.createGain();fb.gain.value=.38;const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=1800;
+  echoIn.connect(dl);dl.connect(lp);lp.connect(fb);fb.connect(dl);lp.connect(master);
+  noiseBuf=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+}
+function note(m,t,dur,type,gn,dest,det){const o=ctx.createOscillator(),a=ctx.createGain();o.type=type;o.frequency.value=440*Math.pow(2,(m-69)/12);o.detune.value=det||0;a.gain.setValueAtTime(0,t);a.gain.linearRampToValueAtTime(gn,t+.02);a.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(a);a.connect(dest);o.start(t);o.stop(t+dur+.05);}
+function bell(t,m,dest,v){[1,2.76,5.4].forEach((r,i)=>{const o=ctx.createOscillator(),a=ctx.createGain();o.frequency.value=440*Math.pow(2,(m-69)/12)*r;a.gain.setValueAtTime((v||.12)/(i+1),t);a.gain.exponentialRampToValueAtTime(.0001,t+2.6);o.connect(a);a.connect(dest);o.start(t);o.stop(t+2.7);});}
+function sweep(t,dest){const s=ctx.createBufferSource(),f=ctx.createBiquadFilter(),gn=ctx.createGain();s.buffer=noiseBuf;s.loop=true;f.type="bandpass";f.Q.value=4;f.frequency.setValueAtTime(400,t);f.frequency.exponentialRampToValueAtTime(3200,t+1.2);gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(.16,t+.4);gn.gain.linearRampToValueAtTime(0,t+1.3);s.connect(f);f.connect(gn);gn.connect(dest);s.start(t);s.stop(t+1.4);}
+// a ghostly "wooOOoo" that rises and vanishes as a ghost is caught
+function wooo(i){
+  if(!ctx)return;const t=ctx.currentTime,base=440*Math.pow(2,((i%6)*2-4)/12);
+  const o=ctx.createOscillator(),o2=ctx.createOscillator(),a=ctx.createGain(),vib=ctx.createOscillator(),vg=ctx.createGain();
+  o.type="sine";o2.type="triangle";vib.frequency.value=6;vg.gain.value=14;vib.connect(vg);vg.connect(o.frequency);vg.connect(o2.frequency);
+  o.frequency.setValueAtTime(base*.75,t);o.frequency.exponentialRampToValueAtTime(base*1.6,t+.5);o.frequency.exponentialRampToValueAtTime(base*2.4,t+.9);
+  o2.frequency.setValueAtTime(base*.75*1.5,t);o2.frequency.exponentialRampToValueAtTime(base*2.4*1.5,t+.9);
+  a.gain.setValueAtTime(0,t);a.gain.linearRampToValueAtTime(.14,t+.12);a.gain.exponentialRampToValueAtTime(.0001,t+1);
+  const g2=ctx.createGain();g2.gain.value=.25;o.connect(a);o2.connect(g2);g2.connect(a);a.connect(master);a.connect(echoIn);
+  [o,o2,vib].forEach(x=>{x.start(t);x.stop(t+1.05);});
+  [96,100,103].forEach((m,k)=>note(m,t+.75+k*.06,.4,"sine",.04,echoIn));
+}
+// soft shiver while the light is on a ghost
+let shiver=null;
+function shiverOn(){if(!ctx||shiver)return;const t=ctx.currentTime,o=ctx.createOscillator(),a=ctx.createGain(),l=ctx.createOscillator(),lg=ctx.createGain();
+  o.type="sine";o.frequency.value=660;l.frequency.value=11;lg.gain.value=40;l.connect(lg);lg.connect(o.frequency);
+  a.gain.setValueAtTime(0,t);a.gain.linearRampToValueAtTime(.035,t+.1);o.connect(a);a.connect(master);o.start(t);l.start(t);shiver={o,l,a};}
+function shiverOff(){if(!shiver)return;const t=ctx.currentTime,s=shiver;shiver=null;s.a.gain.cancelScheduledValues(t);s.a.gain.setValueAtTime(s.a.gain.value,t);s.a.gain.linearRampToValueAtTime(0,t+.08);s.o.stop(t+.1);s.l.stop(t+.1);}
+function noise(t,dur,type,f,q,gn,dest,f2){const s=ctx.createBufferSource(),fl=ctx.createBiquadFilter(),a=ctx.createGain();s.buffer=noiseBuf;s.loop=true;fl.type=type;fl.frequency.setValueAtTime(f,t);if(f2)fl.frequency.exponentialRampToValueAtTime(f2,t+dur);fl.Q.value=q;a.gain.setValueAtTime(gn,t);a.gain.exponentialRampToValueAtTime(.0001,t+dur);s.connect(fl);fl.connect(a);a.connect(dest);s.start(t,Math.random());s.stop(t+dur+.05);}
+// a ghost slips into the safe house: a door creak, a gong and a mocking falling laugh
+function escaped(){
+  if(!ctx)return;const t=ctx.currentTime;
+  const s=ctx.createBufferSource(),f=ctx.createBiquadFilter(),a=ctx.createGain();s.buffer=noiseBuf;s.loop=true;f.type="bandpass";f.Q.value=12;
+  f.frequency.setValueAtTime(300,t);f.frequency.linearRampToValueAtTime(900,t+.5);a.gain.setValueAtTime(0,t);a.gain.linearRampToValueAtTime(.25,t+.1);a.gain.linearRampToValueAtTime(0,t+.6);
+  s.connect(f);f.connect(a);a.connect(master);s.start(t);s.stop(t+.65);
+  bell(t+.3,45,echoIn,.18);bell(t+.3,45,master,.1);
+  [0,1,2,3].forEach(i=>{const o=ctx.createOscillator(),g2=ctx.createGain(),tt=t+.5+i*.17,f0=520-i*60;o.type="triangle";
+    o.frequency.setValueAtTime(f0,tt);o.frequency.exponentialRampToValueAtTime(f0*.7,tt+.14);g2.gain.setValueAtTime(0,tt);g2.gain.linearRampToValueAtTime(.09,tt+.02);g2.gain.exponentialRampToValueAtTime(.0001,tt+.16);
+    o.connect(g2);g2.connect(master);g2.connect(echoIn);o.start(tt);o.stop(tt+.2);});
+}
+// 8 seconds of terror while the ghosts attack
+function scary(){
+  initAudio();if(!ctx)return;const t=ctx.currentTime+.02,END=8;
+  const bus=ctx.createGain();bus.gain.setValueAtTime(0,t);bus.gain.linearRampToValueAtTime(1,t+.3);bus.gain.setValueAtTime(1,t+END-1.2);bus.gain.linearRampToValueAtTime(0,t+END);bus.connect(master);bus.connect(echoIn);
+  // stab: a dissonant orchestral hit
+  [33,34,39,45,46,51].forEach((m,i)=>{note(m,t,1.6,"sawtooth",.07,bus,i*7);});
+  noise(t,.8,"lowpass",1200,1,.4,bus,200);
+  // grinding cluster drone that slowly opens up
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.setValueAtTime(200,t);lp.frequency.linearRampToValueAtTime(1600,t+END-1);lp.Q.value=6;lp.connect(bus);
+  const trem=ctx.createGain();trem.gain.value=.5;trem.connect(lp);const lfo=ctx.createOscillator(),lg=ctx.createGain();lfo.frequency.setValueAtTime(4,t);lfo.frequency.linearRampToValueAtTime(11,t+END);lg.gain.value=.4;lfo.connect(lg);lg.connect(trem.gain);lfo.start(t);lfo.stop(t+END);
+  [[40,0],[41,9],[46,-6],[47,4],[52,-10]].forEach(([m,dt])=>{const o=ctx.createOscillator(),a=ctx.createGain();o.type="sawtooth";o.frequency.value=440*Math.pow(2,(m-69)/12);o.detune.value=dt;
+    a.gain.setValueAtTime(0,t);a.gain.linearRampToValueAtTime(.05,t+1.5);o.connect(a);a.connect(trem);o.start(t);o.stop(t+END);});
+  // heartbeat, speeding up
+  let hb=t+.6,gap=.9;while(hb<t+END-.8){[0,.18].forEach((o,j)=>{const os=ctx.createOscillator(),a=ctx.createGain(),tt=hb+o;os.frequency.setValueAtTime(70,tt);os.frequency.exponentialRampToValueAtTime(40,tt+.15);
+    a.gain.setValueAtTime(j?.28:.4,tt);a.gain.exponentialRampToValueAtTime(.0001,tt+.2);os.connect(a);a.connect(bus);os.start(tt);os.stop(tt+.22);});hb+=gap;gap=Math.max(.42,gap*.9);}
+  // ghostly shrieks swooping past
+  [1.2,2.6,3.5,4.6,5.3,6.2].forEach((dt,i)=>{const o=ctx.createOscillator(),o2=ctx.createOscillator(),a=ctx.createGain(),tt=t+dt,f0=900+Math.random()*700;
+    o.type="sine";o2.type="sawtooth";o.frequency.setValueAtTime(f0*.6,tt);o.frequency.exponentialRampToValueAtTime(f0*1.5,tt+.35);o.frequency.exponentialRampToValueAtTime(f0*.4,tt+1);
+    o2.frequency.setValueAtTime(f0*.6*1.01,tt);o2.frequency.exponentialRampToValueAtTime(f0*1.5*1.01,tt+.35);o2.frequency.exponentialRampToValueAtTime(f0*.4,tt+1);
+    const bp=ctx.createBiquadFilter();bp.type="bandpass";bp.frequency.value=f0;bp.Q.value=1.5;const a2=ctx.createGain();a2.gain.value=.25;
+    a.gain.setValueAtTime(0,tt);a.gain.linearRampToValueAtTime(.09,tt+.12);a.gain.exponentialRampToValueAtTime(.0001,tt+1.05);
+    o.connect(a);o2.connect(bp);bp.connect(a2);a2.connect(a);a.connect(bus);o.start(tt);o2.start(tt);o.stop(tt+1.1);o2.stop(tt+1.1);});
+  // whooshes as they lunge
+  [2.3,3.4,4.5,5.6,6.7].forEach(dt=>noise(t+dt,.5,"bandpass",500,2,.35,bus,2600));
+}
+function victory(){
+  initAudio();if(!ctx)return;const t0=ctx.currentTime+.08;
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=900;const vg=ctx.createGain();vg.gain.value=1;lp.connect(vg);vg.connect(master);vg.connect(echoIn);
+  const CH=[[50,53,57,38],[46,50,53,34],[45,49,52,33],[50,53,57,38],[55,58,62,43],[58,62,65,46],[55,58,62,43],[57,61,64,45],[50,53,57,38]];
+  CH.forEach((ch,i)=>{const d=i===8?3.4:1.35;ch.forEach(m=>{note(m,t0+i,d,"sawtooth",.045,lp);note(m,t0+i,d,"sawtooth",.03,lp,9);});});
+  [[74,0],[77,.28],[81,.56],[86,.84],[85,1.25],[81,1.55],[82,1.85],[86,2.2],[89,2.5],[88,2.85],[86,3.3],[93,3.75],
+   [91,4.2],[89,4.5],[86,4.8],[82,5.1],[84,5.5],[86,5.8],[89,6.1],[88,6.5],[85,6.9],[81,7.2],[85,7.5]].forEach(([m,dt])=>{note(m,t0+dt,.55,"triangle",.11,vg);note(m-12,t0+dt,.55,"sine",.06,vg);});
+  note(86,t0+8,2.6,"triangle",.12,vg);note(74,t0+8,2.6,"sine",.07,vg);
+  sweep(t0+3.8,vg);bell(t0+4.2,74,vg);sweep(t0+7.6,vg);
+  for(let i=0;i<16;i++)note(98+[0,3,7,12][i%4],t0+8.2+i*.07,.45,"sine",.04,vg);
+  bell(t0+8.3,74,vg);bell(t0+8.7,62,vg);bell(t0+9.4,50,vg);
+}
+function startMusic(){
+  initAudio();if(!ctx||musicNodes)return;const t=ctx.currentTime;
+  const gn=ctx.createGain();gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(.055,t+2);
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=420;lp.connect(gn);gn.connect(master);gn.connect(echoIn);
+  const lfo=ctx.createOscillator(),lg=ctx.createGain();lfo.frequency.value=.07;lg.gain.value=180;lfo.connect(lg);lg.connect(lp.frequency);lfo.start();
+  const os=[38,45,50,53].map((m,i)=>{const o=ctx.createOscillator();o.type="sawtooth";o.frequency.value=440*Math.pow(2,(m-69)/12);o.detune.value=i%2?-7:6;o.connect(lp);o.start();return o;});
+  const iv=setInterval(()=>{if(ctx)bell(ctx.currentTime,[62,65,69,57][Math.floor(Math.random()*4)],gn,.08);},5000);
+  musicNodes={gn,os:[...os,lfo],iv};
+}
+function stopMusic(){if(!musicNodes)return;const m=musicNodes;musicNodes=null;clearInterval(m.iv);const t=ctx.currentTime;m.gn.gain.cancelScheduledValues(t);m.gn.gain.setValueAtTime(m.gn.gain.value,t);m.gn.gain.linearRampToValueAtTime(0,t+1);m.os.forEach(o=>o.stop(t+1.1));}
+$("musicBtn").addEventListener("click",e=>{musicOn=!musicOn;e.currentTarget.setAttribute("aria-pressed",musicOn);e.currentTarget.textContent=musicOn?"♪ Music on":"♪ Music off";musicOn?startMusic():stopMusic();});
+
+/* ---------- tally ---------- */
+const GHOST_PATH="M13 2C6 2 2 7 2 14V28L6.5 24.5L11 28L15.5 24.5L20 28L24 24.5V14C24 7 20 2 13 2Z";
+function buildTally(){$("tally").innerHTML="";for(let i=0;i<N_GHOSTS;i++)$("tally").insertAdjacentHTML("beforeend",`<svg viewBox="0 0 26 30" style="--c:${COLORS[i][0]}" aria-hidden="true"><path d="${GHOST_PATH}"/></svg>`);
+  $("tally").setAttribute("aria-label",`0 of ${N_GHOSTS} ghosts caught`);
+  [...$("levels").children].forEach((el,i)=>{el.classList.toggle("done",i<lv);el.classList.toggle("cur",i===lv);});}
+buildTally();
+
+/* ---------- canvas & light ---------- */
+const cv=$("c"),g=cv.getContext("2d");
+const scene=document.createElement("canvas"),sg=scene.getContext("2d");
+const light=document.createElement("canvas"),lg=light.getContext("2d");
+let W=0,H=0,dpr=1,RADIUS=70,tx=-999,ty=-999,lx=-999,ly=-999,r=0,targetR=0,playing=false,won=false,winT=0,caught=0;
+function size(){dpr=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;[cv,scene,light].forEach(c=>{c.width=W*dpr;c.height=H*dpr;});
+  sg.setTransform(dpr,0,0,dpr,0,0);lg.setTransform(dpr,0,0,dpr,0,0);RADIUS=W<620?60:66;
+  ghosts.forEach(k=>{k.x=Math.min(Math.max(k.x,60),W-60);k.y=Math.min(Math.max(k.y,topZone()+40),H-60);});}
+const topZone=()=>Math.min(170,H*.22);
+addEventListener("resize",size);
+
+function show(e){if(!playing)return;tx=e.clientX;ty=e.clientY-(e.pointerType==="touch"?TOUCH_LIFT:0);targetR=RADIUS;if(r<1){lx=tx;ly=ty;}}
+function hide(){targetR=0;}
+addEventListener("pointermove",show);addEventListener("pointerdown",e=>{initAudio();show(e);});
+addEventListener("pointerup",e=>{if(e.pointerType!=="mouse")hide();});
+addEventListener("pointercancel",hide);document.addEventListener("mouseleave",hide);addEventListener("blur",hide);
+
+/* ---------- ghosts (new random hiding spots every game) ---------- */
+let ghosts=[],strikes=0,failing=false,failT=0,nextRun=6,homeFlash=0;
+const house=()=>({x:W/2,y:H-Math.max(56,H*.08)});
+function spot(){const top=topZone()+50,h=house();let x,y;
+  for(let t=0;t<300;t++){x=60+Math.random()*(W-120);y=top+Math.random()*(H-top-90);if(Math.hypot(x-h.x,y-h.y)>Math.min(W,H)*.35)break;}return [x,y];}
+function spawn(){
+  ghosts=[];
+  for(let i=0;i<N_GHOSTS;i++){
+    let x,y,ok=false;
+    for(let t=0;t<500&&!ok;t++){[x,y]=spot();ok=ghosts.every(o=>Math.hypot(o.x-x,o.y-y)>Math.min(W,H)*(N_GHOSTS>8?.13:.18));}
+    ghosts.push({x,y,ox:x,oy:y,ph:Math.random()*6.28,sp:.65+Math.random()*.4,col:COLORS[i],lit:0,state:"hide",run:false,t:0,blink:2+Math.random()*4,eyes:0,slot:i,fx:0,fy:0});
+  }
+}
+function drawGhost(c,x,y,s,col,now,alpha,shake,angry){
+  c.save();c.globalAlpha=alpha;c.translate(x+(shake?Math.sin(now*60)*3*shake:0),y);c.scale(s,s);
+  c.shadowColor=col[1];c.shadowBlur=26;c.fillStyle=col[0];
+  c.beginPath();c.arc(0,-10,26,Math.PI,0);c.lineTo(26,22);
+  for(let i=0;i<4;i++){const x0=26-i*13,w=Math.sin(now*4+i)*3;c.quadraticCurveTo(x0-6.5,12+w,x0-13,22+(i%2?0:2));}
+  c.closePath();c.fill();c.shadowBlur=0;
+  if(angry){ // slanted red eyes and a jagged screaming mouth
+    c.fillStyle="#000";c.beginPath();c.moveTo(-16,-17);c.lineTo(-3,-10);c.lineTo(-5,-3);c.lineTo(-15,-6);c.closePath();c.moveTo(16,-17);c.lineTo(3,-10);c.lineTo(5,-3);c.lineTo(15,-6);c.closePath();c.fill();
+    c.fillStyle="#ff2020";c.shadowColor="#ff0000";c.shadowBlur=10;c.beginPath();c.arc(-8,-8,2.4,0,7);c.arc(8,-8,2.4,0,7);c.fill();c.shadowBlur=0;
+    c.fillStyle="#000";c.beginPath();c.moveTo(-11,3);for(let i=0;i<=6;i++)c.lineTo(-11+i*22/6,3+(i%2?5:0));c.lineTo(10,16);c.quadraticCurveTo(0,22,-10,16);c.closePath();c.fill();
+  }else{
+    c.fillStyle="#000";c.beginPath();c.ellipse(-9,-10,4.5,7,0,0,7);c.ellipse(9,-10,4.5,7,0,0,7);c.fill();
+    c.beginPath();c.ellipse(0,6,5,6+(shake?3:0),0,0,7);c.fill();
+  }
+  c.restore();
+}
+// the ghosts' safe house: a ruined castle, always faintly visible at the bottom of the screen
+function drawHouse(c,T,danger){
+  const h=house(),s=Math.min(1.2,Math.max(.75,Math.min(W,H)/560));
+  c.save();c.translate(h.x,h.y);c.scale(s,s);
+  const glow=.35+.65*Math.max(danger,homeFlash)+.08*Math.sin(T*3);
+  c.strokeStyle=`rgba(185,103,255,${.35+.5*glow})`;c.lineWidth=2;c.lineJoin="round";c.fillStyle="#0b0614";c.shadowColor="#7a2cff";c.shadowBlur=10+20*glow;
+  c.beginPath();
+  c.moveTo(-74,34);c.lineTo(-74,-44);                                         // left tower, intact battlements
+  c.lineTo(-70,-44);c.lineTo(-70,-52);c.lineTo(-62,-52);c.lineTo(-62,-44);c.lineTo(-56,-44);c.lineTo(-56,-52);c.lineTo(-48,-52);c.lineTo(-48,-44);c.lineTo(-44,-44);
+  c.lineTo(-44,-12);                                                          // curtain wall with a crumbled stretch
+  c.lineTo(-38,-12);c.lineTo(-38,-18);c.lineTo(-30,-18);c.lineTo(-30,-12);c.lineTo(-22,-12);c.lineTo(-18,-6);c.lineTo(-12,-9);c.lineTo(-6,-2);c.lineTo(2,-7);c.lineTo(8,-4);
+  c.lineTo(14,-12);c.lineTo(22,-12);c.lineTo(22,-18);c.lineTo(30,-18);c.lineTo(30,-12);c.lineTo(42,-12);
+  c.lineTo(42,-30);c.lineTo(48,-38);c.lineTo(52,-31);c.lineTo(58,-46);c.lineTo(63,-36);c.lineTo(68,-40);c.lineTo(72,-28);  // broken right tower
+  c.lineTo(72,34);c.closePath();c.fill();c.stroke();
+  c.shadowBlur=0;c.strokeStyle=`rgba(185,103,255,${.2+.3*glow})`;c.lineWidth=1.2;     // cracks
+  c.beginPath();c.moveTo(56,-20);c.lineTo(52,-8);c.lineTo(57,4);c.moveTo(-64,6);c.lineTo(-58,16);c.lineTo(-62,26);c.stroke();
+  c.shadowBlur=14*glow;c.shadowColor="#ffb347";c.fillStyle=`rgba(255,179,71,${.25+.75*glow})`;
+  c.beginPath();c.rect(-62,-34,4,11);c.rect(-62,-10,4,11);c.rect(54,-6,4,10);c.fill();  // arrow-slit windows
+  c.beginPath();c.moveTo(-12,34);c.lineTo(-12,14);c.arc(0,14,12,Math.PI,0);c.lineTo(12,34);c.closePath();c.fill();  // the gate
+  c.fillStyle=`rgba(11,6,20,.85)`;for(let i=-8;i<=8;i+=5.3)c.fillRect(i-.8,6,1.6,28);   // a broken portcullis
+  c.restore();
+}
+// harmless decorations in the dark, so the light finds more than empty black
+const deco=[];
+function makeDeco(){deco.length=0;for(let i=0;i<22;i++)deco.push({x:Math.random(),y:Math.random(),k:Math.random()<.5?"star":"web",s:.6+Math.random()*.7,c:COLORS[i%5][0]});}
+function drawDeco(){
+  deco.forEach(d=>{const x=d.x*W,y=topZone()+d.y*(H-topZone());sg.save();sg.translate(x,y);sg.scale(d.s,d.s);sg.globalAlpha=.55;
+    if(d.k==="star"){sg.fillStyle=d.c;sg.shadowColor=d.c;sg.shadowBlur=10;sg.beginPath();for(let i=0;i<10;i++){const r=i%2?3:8,a=-Math.PI/2+i*Math.PI/5;sg.lineTo(Math.cos(a)*r,Math.sin(a)*r);}sg.fill();}
+    else{sg.strokeStyle=d.c;sg.lineWidth=1;for(let a=0;a<6;a++){sg.beginPath();sg.moveTo(0,0);sg.lineTo(Math.cos(a*1.047)*22,Math.sin(a*1.047)*22);sg.stroke();}
+      for(let k=1;k<4;k++){sg.beginPath();for(let a=0;a<=6;a++)sg.lineTo(Math.cos(a*1.047)*k*7,Math.sin(a*1.047)*k*7);sg.stroke();}}
+    sg.restore();});
+}
+function setStrikes(){[...$("strikes").children].forEach((el,i)=>el.classList.toggle("out",i<strikes));$("strikes").setAttribute("aria-label",`${3-strikes} of 3 candles left`);}
+function startRun(k){if(k.state==="hide"&&!k.run){k.run=true;k.eyes=0;}}
+
+let last=performance.now();
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;const T=now/1000;
+  lx+=(tx-lx)*.25;ly+=(ty-ly)*.25;r+=(targetR-r)*.18;if(r<.5&&targetR===0)r=0;
+  const h=house(),runSpeed=Math.hypot(W,H)*.075*(reduce?.7:1);
+  homeFlash=Math.max(0,homeFlash-dt*.8);
+
+  // every few seconds another ghost makes a dash for the safe house
+  if(playing){nextRun-=dt;if(nextRun<=0){const idle=ghosts.filter(k=>k.state==="hide"&&!k.run);if(idle.length)startRun(idle[Math.floor(Math.random()*idle.length)]);nextRun=5+Math.random()*4;}}
+
+  // move ghosts
+  let anyLit=false,danger=0;
+  ghosts.forEach(k=>{
+    if(k.state==="hide"){
+      k.ph+=dt*k.sp*(reduce?.4:1);
+      if(k.run){ // its anchor glides towards the door
+        const dx=h.x-k.ox,dy=h.y-k.oy,d=Math.hypot(dx,dy)||1,st=Math.min(d,runSpeed*dt);k.ox+=dx/d*st;k.oy+=dy/d*st;
+        danger=Math.max(danger,1-Math.min(1,Math.hypot(h.x-k.x,h.y-k.y)/(Math.min(W,H)*.45)));}
+      const amp=k.run?.35:1,wx=k.ox+Math.sin(k.ph)*60*amp,wy=k.oy+Math.cos(k.ph*1.3)*40*amp;
+      const d=Math.hypot(lx-k.x,ly-k.y),inLight=playing&&r>RADIUS*.6&&d<r*.85;
+      if(inLight){anyLit=true;k.lit+=dt;k.wasLit=true;
+        const a=Math.atan2(k.y-ly,k.x-lx);k.fx+=Math.cos(a)*110*dt;k.fy+=Math.sin(a)*110*dt;
+        if(k.lit>=CATCH_TIME){k.state="fly";k.t=0;k.sx=k.x;k.sy=k.y;k.run=false;wooo(k.slot);}}
+      else{k.lit=Math.max(0,k.lit-dt*1.5);
+        // lose it and the frightened ghost bolts for the safe house
+        if(k.wasLit){k.wasLit=false;startRun(k);}}
+      k.fx*=.995;k.fy*=.995;
+      k.x+=(wx+k.fx-k.x)*Math.min(1,dt*2);k.y+=(wy+k.fy-k.y)*Math.min(1,dt*2);
+      k.x=Math.min(Math.max(k.x,40),W-40);k.y=Math.min(Math.max(k.y,topZone()+30),H-30);
+      const soft=lv===LEVELS.length-1; // last level: the eyes only glisten very softly, and runners give nothing away
+      if(!k.run||soft){k.blink-=dt;if(k.blink<0){k.eyes=soft?.45:.7;k.blink=soft?3+Math.random()*4:2.5+Math.random()*3;}k.eyes=Math.max(0,k.eyes-dt*(soft?1.2:1.4));}
+      if(playing&&k.run&&Math.hypot(h.x-k.x,h.y-k.y)<34){ // made it home: one candle goes out
+        k.state="home";k.t=0;k.run=false;k.lit=0;k.fx=k.fy=0;strikes++;setStrikes();homeFlash=1;escaped();
+        if(strikes>=3)fail();}
+    }else if(k.state==="home"){
+      k.t+=dt;if(k.t>3.5&&playing){const [x,y]=spot();k.x=k.ox=x;k.y=k.oy=y;k.state="hide";k.blink=1+Math.random()*2;}
+    }else if(k.state==="fly"){
+      k.t+=dt/0.9;
+      if(k.t>=1){k.state="caught";caught++;const s=$("tally").children[k.slot];s.classList.add("got","pop");
+        $("tally").setAttribute("aria-label",`${caught} of ${N_GHOSTS} ghosts caught`);
+        if(caught===N_GHOSTS){if(lv<LEVELS.length-1)levelUp();else win();}}
+    }
+  });
+  anyLit?shiverOn():shiverOff();
+
+  // draw the hidden world
+  sg.clearRect(0,0,W,H);drawDeco();
+  ghosts.forEach(k=>{if(k.state==="hide")drawGhost(sg,k.x,k.y,Math.min(W,H)<500?.9:1.1,k.col,T,1,Math.min(1,k.lit/CATCH_TIME));});
+
+  // light mask
+  lg.clearRect(0,0,W,H);
+  let full=0;if(won)full=Math.min(1,(T-winT)/1.5);
+  if(full>0){lg.fillStyle=`rgba(255,255,255,${full*.3})`;lg.fillRect(0,0,W,H);}
+  if(r>0){const gr=lg.createRadialGradient(lx,ly,0,lx,ly,r);gr.addColorStop(0,"#fff");gr.addColorStop(.45,"rgba(255,255,255,.85)");gr.addColorStop(1,"rgba(255,255,255,0)");lg.fillStyle=gr;lg.fillRect(lx-r,ly-r,2*r,2*r);}
+
+  g.setTransform(1,0,0,1,0,0);g.globalCompositeOperation="source-over";g.clearRect(0,0,cv.width,cv.height);
+  g.drawImage(scene,0,0);g.globalCompositeOperation="destination-in";g.drawImage(light,0,0);
+  g.globalCompositeOperation="destination-over";g.fillStyle="#000";g.fillRect(0,0,cv.width,cv.height);
+  g.globalCompositeOperation="source-over";g.setTransform(dpr,0,0,dpr,0,0);
+
+  if(!won&&!failing)drawHouse(g,T,danger);
+
+  // things that glow even in the dark: blinking eyes, runners' eyes, the catch ring, caught ghosts flying to the tally, the victory dance
+  const s=Math.min(W,H)<500?.9:1.1;
+  if(!failing)ghosts.forEach(k=>{
+    if(k.state==="hide"){
+      const ea=k.run&&lv<LEVELS.length-1?.35+.15*Math.sin(T*8):k.eyes;
+      if(ea>0){g.save();g.globalAlpha=ea;g.fillStyle=k.col[0];g.shadowColor=k.col[0];g.shadowBlur=8;g.beginPath();g.ellipse(k.x-9*s,k.y-10*s,3*s,4.5*s,0,0,7);g.ellipse(k.x+9*s,k.y-10*s,3*s,4.5*s,0,0,7);g.fill();g.restore();}
+      if(k.lit>0){g.save();g.strokeStyle=k.col[0];g.shadowColor=k.col[0];g.shadowBlur=10;g.lineWidth=4;g.lineCap="round";g.beginPath();g.arc(k.x,k.y,44*s,-Math.PI/2,-Math.PI/2+Math.PI*2*Math.min(1,k.lit/CATCH_TIME));g.stroke();g.restore();}
+    }else if(k.state==="home"&&k.t<.8){ // a glimpse of the ghost slipping through the door
+      drawGhost(g,h.x,h.y-10,s*(1-k.t),k.col,T,1-k.t/.8,0);
+    }else if(k.state==="fly"){
+      const slot=$("tally").children[k.slot].getBoundingClientRect(),ex=slot.left+slot.width/2,ey=slot.top+slot.height/2;
+      const e=k.t*k.t*(3-2*k.t),x=k.sx+(ex-k.sx)*e+Math.sin(k.t*Math.PI*3)*40*(1-k.t),y=k.sy+(ey-k.sy)*e;
+      drawGhost(g,x,y,s*(1-k.t*.75),k.col,T,1,0);
+    }else if(won){
+      // victory dance: four ghosts above the coordinates, four below, bobbing and swaying
+      const half=Math.ceil(ghosts.length/2),row=k.slot<half?-1:1,col=k.slot%half-(half-1)/2,gap=Math.min(W*.85/half,150);
+      const x=W/2+col*gap+Math.sin(T*2.2+k.slot)*12,y=H/2+row*Math.min(H*.2,170)+Math.sin(T*5+k.slot*1.7)*12;
+      drawGhost(g,x,y,s*Math.min(.75,gap/70),k.col,T,Math.min(1,(T-winT-1)/1),0);
+    }
+  });
+
+  // the ghosts attack: they swarm in, circle and lunge at you
+  if(failing){
+    const ft=T-failT,cx=W/2,cy=H/2,m=Math.min(W,H);
+    ghosts.forEach((k,i)=>{
+      const n=ghosts.length,a=i*2*Math.PI/n+ft*1.3*(i%2?1:-1);
+      const far=Math.hypot(W,H)*.65,ring=m*.33,app=Math.min(1,ft/2.2),e=app*app*(3-2*app);
+      let rad=far+(ring-far)*e,sc=s*(.9+.5*e);
+      const lunge=(ft*1.1+i*.37)%2.2; // staggered lunges at the player
+      if(ft>2.2&&lunge<.6){const l=Math.sin(lunge/.6*Math.PI);rad*=1-.85*l;sc*=1+2.2*l;}
+      const fade=ft>7.2?Math.max(0,1-(ft-7.2)/.8):1;
+      drawGhost(g,cx+Math.cos(a)*rad,cy+Math.sin(a)*rad*.8,sc,k.col,T,fade,.6,true);
+    });
+    if(ft>7.4){g.fillStyle=`rgba(0,0,0,${Math.min(1,(ft-7.4)/.6)})`;g.fillRect(0,0,W,H);}
+    if(ft>8.2)restart();
+  }
+
+  requestAnimationFrame(frame);
+}
+
+function win(){
+  won=true;winT=performance.now()/1000;hide();playing=false;shiverOff();
+  [...$("levels").children].forEach(el=>{el.classList.add("done");el.classList.remove("cur");});
+  setTimeout(victory,400);
+  setTimeout(()=>{$("cn").textContent=FINAL[0];$("cw").textContent=FINAL[1];$("coords").hidden=false;},1300);
+}
+function fail(){
+  failing=true;failT=performance.now()/1000;playing=false;hide();shiverOff();
+  if(musicOn){stopMusic();}
+  scary();
+}
+function startLevel(n){
+  lv=n;N_GHOSTS=LEVELS[n];caught=0;strikes=0;setStrikes();nextRun=6;buildTally();spawn();playing=true;
+}
+function levelUp(){
+  playing=false;hide();shiverOff();levelChime();
+  setTimeout(()=>startLevel(lv+1),3200);
+}
+function levelChime(){initAudio();if(!ctx)return;const t=ctx.currentTime+.05;[62,65,69,74,77,81].forEach((m,i)=>bell(t+i*.13,m,master,.08));note(50,t,1.6,"sawtooth",.03,master);sweep(t+.2,echoIn);}
+function restart(){
+  failing=false;startLevel(0);
+  if(musicOn)startMusic();
+}
+
+$("go").addEventListener("click",()=>{initAudio();$("start").classList.add("gone");playing=true;});
+size();spawn();makeDeco();requestAnimationFrame(frame);
+window.__gh={ghosts:()=>ghosts,catchAll:()=>ghosts.forEach(k=>{if(k.state==="hide"){k.state="fly";k.t=0;k.sx=k.x;k.sy=k.y;}}),
+  runAll:()=>ghosts.forEach(startRun),lv:()=>lv,n:()=>ghosts.length,strikes:()=>strikes,failing:()=>failing,fail:()=>{strikes=3;setStrikes();fail();}};
+})();
+</script>
+<img id="flashlight" alt="" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI2NyIgdmlld0JveD0iMCAwIDQwIDU2Ij4KPGRlZnM+CjxyYWRpYWxHcmFkaWVudCBpZD0iZ2xvdyIgY3g9IjUwJSIgY3k9IjUwJSIgcj0iNTAlIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmQyN2EiIHN0b3Atb3BhY2l0eT0iLjkiLz48c3RvcCBvZmZzZXQ9Ii41IiBzdG9wLWNvbG9yPSIjZmY5YTNjIiBzdG9wLW9wYWNpdHk9Ii4zNSIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmN2ExYSIgc3RvcC1vcGFjaXR5PSIwIi8+PC9yYWRpYWxHcmFkaWVudD4KPGxpbmVhckdyYWRpZW50IGlkPSJmbCIgeDE9IjAiIHkxPSIxIiB4Mj0iMCIgeTI9IjAiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmN2ExYSIvPjxzdG9wIG9mZnNldD0iLjU1IiBzdG9wLWNvbG9yPSIjZmZjMjRhIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZmZmNGMyIi8+PC9saW5lYXJHcmFkaWVudD4KPGxpbmVhckdyYWRpZW50IGlkPSJtZXRhbCIgeDE9IjAiIHgyPSIxIj48c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMyYjFhNGEiLz48c3RvcCBvZmZzZXQ9Ii41IiBzdG9wLWNvbG9yPSIjN2E1YWI4Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMmIxYTRhIi8+PC9saW5lYXJHcmFkaWVudD4KPC9kZWZzPgo8Y2lyY2xlIGN4PSIyMCIgY3k9IjUiIHI9IjMuNiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjN2E1YWI4IiBzdHJva2Utd2lkdGg9IjEuOCIvPgo8cGF0aCBkPSJNMTEgMTRMMTQgOUgyNkwyOSAxNFoiIGZpbGw9InVybCgjbWV0YWwpIiBzdHJva2U9IiMxYTBmMmUiIHN0cm9rZS13aWR0aD0iLjgiLz4KPHJlY3QgeD0iOSIgeT0iMTQiIHdpZHRoPSIyMiIgaGVpZ2h0PSIyOCIgcng9IjMiIGZpbGw9IiNmZmIzNDciIGZpbGwtb3BhY2l0eT0iLjE2Ii8+CjxjaXJjbGUgY3g9IjIwIiBjeT0iMzAiIHI9IjEzIiBmaWxsPSJ1cmwoI2dsb3cpIi8+CjxwYXRoIGQ9Ik0yMCAyMUMyNCAyNiAyNSAzMCAyMi41IDMzLjVDMjEuOCAzNC41IDE4LjIgMzQuNSAxNy41IDMzLjVDMTUgMzAgMTYgMjYgMjAgMjFaIiBmaWxsPSJ1cmwoI2ZsKSI+CjxhbmltYXRlVHJhbnNmb3JtIGF0dHJpYnV0ZU5hbWU9InRyYW5zZm9ybSIgdHlwZT0ic2NhbGUiIHZhbHVlcz0iMSAxOzEuMDYgLjk7Ljk1IDEuMDg7MSAxIiBrZXlUaW1lcz0iMDsuMzsuNzsxIiBkdXI9Ii45cyIgcmVwZWF0Q291bnQ9ImluZGVmaW5pdGUiIGFkZGl0aXZlPSJzdW0iLz4KPGFuaW1hdGVUcmFuc2Zvcm0gYXR0cmlidXRlTmFtZT0idHJhbnNmb3JtIiB0eXBlPSJ0cmFuc2xhdGUiIHZhbHVlcz0iMCAwOy0xLjA2IDM7MSAtMi40OzAgMCIga2V5VGltZXM9IjA7LjM7Ljc7MSIgZHVyPSIuOXMiIHJlcGVhdENvdW50PSJpbmRlZmluaXRlIiBhZGRpdGl2ZT0ic3VtIi8+CjwvcGF0aD4KPHJlY3QgeD0iOSIgeT0iMTQiIHdpZHRoPSIyMiIgaGVpZ2h0PSIyOCIgcng9IjMiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNtZXRhbCkiIHN0cm9rZS13aWR0aD0iMi4yIi8+CjxwYXRoIGQ9Ik0xNS41IDE0VjQyTTI0LjUgMTRWNDIiIHN0cm9rZT0iIzNhMmE1ZSIgc3Ryb2tlLXdpZHRoPSIxLjMiLz4KPHJlY3QgeD0iNi41IiB5PSI0MSIgd2lkdGg9IjI3IiBoZWlnaHQ9IjYiIHJ4PSIyIiBmaWxsPSJ1cmwoI21ldGFsKSIgc3Ryb2tlPSIjMWEwZjJlIiBzdHJva2Utd2lkdGg9Ii44Ii8+CjxwYXRoIGQ9Ik0xMiA0N0wxMyA1MUgyN0wyOCA0NyIgZmlsbD0iIzJiMWE0YSIvPgo8L3N2Zz4K" style="position:fixed;left:0;top:0;width:48px;height:67px;pointer-events:none;z-index:99999;transform:translate(-300px,-300px);">
+<script>
+(function () {
+  var f = document.getElementById("flashlight");
+  var HX = 24, HY = 36;   // the lantern flame sits on the pointer
+  if (!window.matchMedia("(pointer:fine)").matches) { f.style.display = "none"; return; }
+  var s = document.createElement("style");
+  s.textContent = "*{cursor:none !important}";
+  document.head.appendChild(s);
+  window.addEventListener("pointermove", function (e) {
+    f.style.transform = "translate(" + (e.clientX - HX) + "px," + (e.clientY - HY) + "px)";
+  });
+  document.addEventListener("mouseleave", function () { f.style.transform = "translate(-300px,-300px)"; });
+})();
+</script>
+</body>
+</html>
