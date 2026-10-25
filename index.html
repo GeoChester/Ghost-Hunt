@@ -50,6 +50,17 @@ h1{margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,7vw,
 .coord-w{color:#ffab55;text-shadow:0 0 8px rgba(255,171,85,.9),0 0 22px rgba(255,120,30,.55);animation:glow 3s ease-in-out infinite .6s}
 @keyframes glow{50%{filter:brightness(1.25)}}
 @keyframes flick{0%{opacity:0}10%{opacity:.8}14%{opacity:.1}22%{opacity:.9}26%{opacity:.2}40%,100%{opacity:1}}
+.replay{position:fixed;left:50%;bottom:calc(28px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:7;font-family:var(--display);font-size:22px;letter-spacing:.06em;color:#120424;background:var(--violet);border:0;border-radius:999px;padding:12px 30px;cursor:pointer;box-shadow:0 0 18px var(--violet),0 0 40px var(--violet-d)}
+.replay:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}
+h1{pointer-events:auto;cursor:default}
+.admin{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(6,2,16,.88);padding:0 16px}
+.acard{width:min(100%,320px);background:#140a28;border:1px solid #3a2466;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px;color:#e6d4ff;font-family:var(--text)}
+.acard label{font-family:var(--display);font-size:1.3rem}
+.acard input{font:inherit;font-size:18px;padding:8px 10px;border-radius:8px;border:1px solid #3a2466;background:#05020c;color:#e6d4ff;-webkit-user-select:text;user-select:text}
+.arow{display:flex;gap:8px;justify-content:flex-end}
+.arow button{font-family:var(--display);font-size:16px;min-height:44px;padding:6px 16px;border-radius:999px;border:1px solid var(--violet);background:transparent;color:#e6d4ff;cursor:pointer}
+.acard p{margin:0;min-height:1.2em;font-size:15px;color:#ff9a8a;font-style:italic}
+.admin[hidden],.replay[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.coords,.coord-n,.coord-w,.tally svg.pop{animation:none}}
 </style>
 </head>
@@ -63,6 +74,8 @@ h1{margin:0;font-family:var(--display);font-weight:400;font-size:clamp(28px,7vw,
   <div class="strikes" id="strikes" aria-label="3 of 3 candles left"><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg><svg viewBox="0 0 20 30" aria-hidden="true"><path class="fl" d="M10 1C14 7 15 10 10 14C5 10 6 7 10 1Z"/><rect x="6" y="15" width="8" height="14" rx="1.5"/></svg></div>
 </header>
 <div class="coords" id="coords" hidden><div class="coord-n" id="cn"></div><div class="coord-w" id="cw"></div></div>
+<button class="replay" id="replay" type="button" hidden>↺ Replay</button>
+<div class="admin" id="admin" hidden><div class="acard" role="dialog" aria-modal="true" aria-labelledby="apwl"><label id="apwl" for="apw">Password</label><input id="apw" type="password" autocomplete="off"><p id="aerr" role="status"></p><div class="arow"><button id="acancel" type="button">Cancel</button><button id="aok" type="button">Open</button></div></div></div>
 <div class="start" id="start"><div class="card">
   <h2>Ghost Hunt</h2>
   <p>Use your lantern to catch the ghosts before they hide in the castle!</p>
@@ -84,7 +97,7 @@ const COLORS=[["#b967ff","#7a2cff"],["#3ff3ff","#00a9ff"],["#7dff6a","#1fe05a"],
 const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /* ---------- audio ---------- */
-let ctx,master,echoIn,noiseBuf,musicNodes=null,musicOn=false;
+let ctx,master,echoIn,noiseBuf,musicOn=false;
 function initAudio(){
   if(ctx){if(ctx.state==="suspended")ctx.resume();return;}
   const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;ctx=new AC();
@@ -164,17 +177,109 @@ function victory(){
   for(let i=0;i<16;i++)note(98+[0,3,7,12][i%4],t0+8.2+i*.07,.45,"sine",.04,vg);
   bell(t0+8.3,74,vg);bell(t0+8.7,62,vg);bell(t0+9.4,50,vg);
 }
-function startMusic(){
-  initAudio();if(!ctx||musicNodes)return;const t=ctx.currentTime;
-  const gn=ctx.createGain();gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(.055,t+2);
-  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=420;lp.connect(gn);gn.connect(master);gn.connect(echoIn);
-  const lfo=ctx.createOscillator(),lg=ctx.createGain();lfo.frequency.value=.07;lg.gain.value=180;lfo.connect(lg);lg.connect(lp.frequency);lfo.start();
-  const os=[38,45,50,53].map((m,i)=>{const o=ctx.createOscillator();o.type="sawtooth";o.frequency.value=440*Math.pow(2,(m-69)/12);o.detune.value=i%2?-7:6;o.connect(lp);o.start();return o;});
-  const iv=setInterval(()=>{if(ctx)bell(ctx.currentTime,[62,65,69,57][Math.floor(Math.random()*4)],gn,.08);},5000);
-  musicNodes={gn,os:[...os,lfo],iv};
-}
-function stopMusic(){if(!musicNodes)return;const m=musicNodes;musicNodes=null;clearInterval(m.iv);const t=ctx.currentTime;m.gn.gain.cancelScheduledValues(t);m.gn.gain.setValueAtTime(m.gn.gain.value,t);m.gn.gain.linearRampToValueAtTime(0,t+1);m.os.forEach(o=>o.stop(t+1.1));}
-$("musicBtn").addEventListener("click",e=>{musicOn=!musicOn;e.currentTarget.setAttribute("aria-pressed",musicOn);e.currentTarget.textContent=musicOn?"♪ Music on":"♪ Music off";musicOn?startMusic():stopMusic();});
+/* ---------- background music: the same engine as Midnight Pairs (off by default) ---------- */
+const Music=(function(){
+  let ac,master,dry,wet,noiseBuf,timer=null,on=false,nextT=0,step=0,bar=0,nextEvt=0;
+  const hz=m=>440*Math.pow(2,(m-69)/12);
+  const PH_A=[76,72,69,71,72,76,81,80,76,72,71,69];
+  const PH_B=[77,76,74,72,71,0,69,0,76,0,75,0];
+
+  function impulse(sec,decay){
+    const len=Math.floor(ac.sampleRate*sec),b=ac.createBuffer(2,len,ac.sampleRate);
+    for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}
+    return b;
+  }
+  function send(g){g.connect(dry);g.connect(wet);}
+  function init(){
+    ac=new (window.AudioContext||window.webkitAudioContext)();
+    master=ac.createGain();master.gain.value=0;master.connect(ac.destination);
+    dry=ac.createGain();dry.gain.value=.7;dry.connect(master);
+    const conv=ac.createConvolver();conv.buffer=impulse(3.2,2.4);
+    wet=ac.createGain();wet.gain.value=.55;wet.connect(conv);conv.connect(master);
+    noiseBuf=ac.createBuffer(1,ac.sampleRate*4,ac.sampleRate);
+    const nd=noiseBuf.getChannelData(0);for(let i=0;i<nd.length;i++)nd[i]=Math.random()*2-1;
+    drone();wind();
+  }
+  function drone(){
+    const g=ac.createGain();g.gain.value=.10;
+    const lp=ac.createBiquadFilter();lp.type='lowpass';lp.frequency.value=260;lp.Q.value=4;
+    [[55,'sawtooth',0],[55,'sawtooth',7],[82.41,'sine',0],[110,'triangle',-5]].forEach(function(p){
+      const o=ac.createOscillator();o.type=p[1];o.frequency.value=p[0];o.detune.value=p[2];o.connect(lp);o.start();
+    });
+    const lfo=ac.createOscillator(),lg=ac.createGain();lfo.frequency.value=.07;lg.gain.value=110;
+    lfo.connect(lg);lg.connect(lp.frequency);lfo.start();
+    lp.connect(g);send(g);
+  }
+  function wind(){
+    const s=ac.createBufferSource();s.buffer=noiseBuf;s.loop=true;
+    const bp=ac.createBiquadFilter();bp.type='bandpass';bp.frequency.value=420;bp.Q.value=.8;
+    const g=ac.createGain();g.gain.value=.05;
+    const lfo=ac.createOscillator(),lg=ac.createGain();lfo.frequency.value=.11;lg.gain.value=260;
+    lfo.connect(lg);lg.connect(bp.frequency);lfo.start();
+    s.connect(bp);bp.connect(g);send(g);s.start();
+  }
+  function note(m,t,len){
+    const f=hz(m);
+    [[1,.20],[2,.06],[2.76,.025],[4.1,.012]].forEach(function(p){
+      const o=ac.createOscillator(),g=ac.createGain();
+      o.type='sine';o.frequency.value=f*p[0];
+      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(p[1],t+.006);
+      g.gain.exponentialRampToValueAtTime(.0001,t+len/Math.pow(p[0],.3));
+      o.connect(g);send(g);o.start(t);o.stop(t+len+.1);
+    });
+  }
+  function bell(t){
+    [[110,.18,7],[263,.07,5],[407,.035,4]].forEach(function(p){
+      const o=ac.createOscillator(),g=ac.createGain();o.type='sine';o.frequency.value=p[0];
+      g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(p[1],t+.01);
+      g.gain.exponentialRampToValueAtTime(.0001,t+p[2]);
+      o.connect(g);send(g);o.start(t);o.stop(t+p[2]+.1);
+    });
+  }
+  function sweep(t){
+    const o=ac.createOscillator(),g=ac.createGain(),v=ac.createOscillator(),vg=ac.createGain();
+    o.type='sine';o.frequency.setValueAtTime(520,t);o.frequency.exponentialRampToValueAtTime(980,t+3.5);
+    v.frequency.value=5.5;vg.gain.value=14;v.connect(vg);vg.connect(o.frequency);
+    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.05,t+1.6);g.gain.linearRampToValueAtTime(0,t+3.6);
+    o.connect(g);send(g);o.start(t);v.start(t);o.stop(t+3.8);v.stop(t+3.8);
+  }
+  function pump(){
+    while(nextT<ac.currentTime+.5){
+      const seq=(bar%3===2)?PH_B:PH_A;
+      const m=seq[step];
+      if(m)note(m-(Math.random()<.18?12:0),nextT,2.2);
+      nextT+=.34*(seq===PH_B?1.5:1);
+      step++;
+      if(step>=seq.length){step=0;bar++;nextT+=.9;}
+    }
+    if(ac.currentTime>nextEvt){
+      const t=ac.currentTime+.05;
+      if(Math.random()<.5)sweep(t);else bell(t);
+      nextEvt=ac.currentTime+9+Math.random()*10;
+    }
+  }
+  return{
+    toggle:function(){
+      if(!on){
+        if(!ac)init();
+        ac.resume();on=true;nextT=ac.currentTime+.3;step=0;bar=0;nextEvt=ac.currentTime+6;
+        timer=setInterval(pump,120);
+        master.gain.cancelScheduledValues(ac.currentTime);
+        master.gain.setTargetAtTime(.75,ac.currentTime,.8);
+      }else{
+        on=false;clearInterval(timer);
+        master.gain.setTargetAtTime(0,ac.currentTime,.25);
+        setTimeout(function(){if(!on&&ac)ac.suspend();},1400);
+      }
+      return on;
+    },
+    isOn:function(){return on;}
+  };
+})();
+$("musicBtn").addEventListener("click",e=>{musicOn=Music.toggle();e.currentTarget.setAttribute("aria-pressed",musicOn);e.currentTarget.textContent=musicOn?"♪ Music on":"♪ Music off";});
+// during the scare the music fades out; it comes back with the new game if it was on
+function musicPause(){if(Music.isOn())Music.toggle();}
+function musicResume(){if(musicOn&&!Music.isOn())Music.toggle();}
 
 /* ---------- tally ---------- */
 const GHOST_PATH="M13 2C6 2 2 7 2 14V28L6.5 24.5L11 28L15.5 24.5L20 28L24 24.5V14C24 7 20 2 13 2Z";
@@ -371,10 +476,12 @@ function win(){
   [...$("levels").children].forEach(el=>{el.classList.add("done");el.classList.remove("cur");});
   setTimeout(victory,400);
   setTimeout(()=>{$("cn").textContent=FINAL[0];$("cw").textContent=FINAL[1];$("coords").hidden=false;},1300);
+  // Replay only appears once the whole hunt is won
+  setTimeout(()=>{if(won)$("replay").hidden=false;},3200);
 }
 function fail(){
   failing=true;failT=performance.now()/1000;playing=false;hide();shiverOff();
-  if(musicOn){stopMusic();}
+  musicPause();
   scary();
 }
 function startLevel(n){
@@ -382,15 +489,30 @@ function startLevel(n){
 }
 function levelUp(){
   playing=false;hide();shiverOff();levelChime();
-  setTimeout(()=>startLevel(lv+1),3200);
+  const from=lv;setTimeout(()=>{if(lv===from&&!won)startLevel(from+1);},3200);
 }
 function levelChime(){initAudio();if(!ctx)return;const t=ctx.currentTime+.05;[62,65,69,74,77,81].forEach((m,i)=>bell(t+i*.13,m,master,.08));note(50,t,1.6,"sawtooth",.03,master);sweep(t+.2,echoIn);}
 function restart(){
+  if(!failing)return;
   failing=false;startLevel(0);
-  if(musicOn)startMusic();
+  musicResume();
 }
 
 $("go").addEventListener("click",()=>{initAudio();$("start").classList.add("gone");playing=true;});
+// replay always starts the whole hunt again from level 1
+$("replay").addEventListener("click",()=>{$("replay").hidden=true;$("coords").hidden=true;won=false;failing=false;startLevel(0);});
+// admin door: three quick taps on the title ask for the password; the right one jumps to the last level and catches every ghost
+const ADMIN=217580182;let titleTaps=[];
+function adminHash(t){let h=2166136261;t="jar-admin|"+t;for(let i=0;i<t.length;i++){h^=t.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h>>>0;}
+document.querySelector("h1").addEventListener("pointerdown",()=>{const now=performance.now();titleTaps=titleTaps.filter(t=>now-t<1500);titleTaps.push(now);
+  if(titleTaps.length>=3){titleTaps=[];$("aerr").textContent="";$("apw").value="";$("admin").hidden=false;setTimeout(()=>$("apw").focus(),0);}});
+function adminClose(){$("admin").hidden=true;}
+function adminTry(){if(adminHash($("apw").value)!==ADMIN){$("aerr").textContent="That's not it.";$("apw").select();return;}
+  adminClose();initAudio();$("start").classList.add("gone");$("replay").hidden=true;$("coords").hidden=true;won=false;failing=false;
+  startLevel(LEVELS.length-1);
+  setTimeout(()=>ghosts.forEach(k=>{if(k.state==="hide"){k.state="fly";k.t=0;k.sx=k.x;k.sy=k.y;k.run=false;}}),400);}
+$("aok").addEventListener("click",adminTry);$("acancel").addEventListener("click",adminClose);
+$("apw").addEventListener("keydown",e=>{e.stopPropagation();if(e.key==="Enter"){e.preventDefault();adminTry();}else if(e.key==="Escape")adminClose();});
 size();spawn();makeDeco();requestAnimationFrame(frame);
 window.__gh={ghosts:()=>ghosts,catchAll:()=>ghosts.forEach(k=>{if(k.state==="hide"){k.state="fly";k.t=0;k.sx=k.x;k.sy=k.y;}}),
   runAll:()=>ghosts.forEach(startRun),lv:()=>lv,n:()=>ghosts.length,strikes:()=>strikes,failing:()=>failing,fail:()=>{strikes=3;setStrikes();fail();}};
